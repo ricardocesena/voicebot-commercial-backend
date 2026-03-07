@@ -1,0 +1,26 @@
+{
+  "name": "voicebot-commercial-server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Voicebot Commercial Backend API",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "openai": "^6.27.0",
+    "twilio": "^5.12.2",
+    "uuid": "^13.0.0",
+    "ws": "^8.19.0"
+  }
+}
