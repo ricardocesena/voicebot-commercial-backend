@@ -4,6 +4,31 @@ const crypto = require('crypto')
 const db = require('../db')
 const openaiService = require('../services/openai')
 
+// Map frontend voice_model values to Twilio Polly voices
+const VOICE_MAP = {
+  'nova': 'Polly.Mia',       // Mujer Natural (español MX)
+  'shimmer': 'Polly.Lucia',   // Mujer Profesional (español ES)
+  'echo': 'Polly.Andres',     // Hombre Natural
+  'onyx': 'Polly.Enrique',    // Hombre Profesional
+  'alloy': 'Polly.Lupe',      // Neutral
+}
+
+// Map frontend language values to Twilio language codes
+const LANG_MAP = {
+  'es-MX': 'es-MX',
+  'es-ES': 'es-ES',
+  'en-US': 'en-US',
+  'pt-BR': 'pt-BR',
+}
+
+function getTwilioVoice(voiceModel) {
+  return VOICE_MAP[voiceModel] || 'Polly.Mia'
+}
+
+function getTwilioLang(language) {
+  return LANG_MAP[language] || 'es-MX'
+}
+
 /**
  * Inbound call webhook - Twilio calls this when someone calls the bot's number
  * POST /api/twilio/voice/:botId
@@ -19,6 +44,9 @@ router.post('/voice/:botId', async (req, res) => {
       </Response>
     `)
   }
+
+  const voice = getTwilioVoice(bot.voice_model)
+  const lang = getTwilioLang(bot.language)
 
   // Create call record
   const callId = `call-${crypto.randomUUID()}`
@@ -38,15 +66,15 @@ router.post('/voice/:botId', async (req, res) => {
   res.type('text/xml')
   res.send(`
     <Response>
-      <Say language="es-MX" voice="Polly.Mia">${escapeXml(bot.greeting)}</Say>
-      <Gather input="speech" language="es-MX" speechTimeout="auto" action="/api/twilio/gather/${callId}" method="POST">
-        <Say language="es-MX" voice="Polly.Mia">.</Say>
+      <Say language="${lang}" voice="${voice}">${escapeXml(bot.greeting)}</Say>
+      <Gather input="speech" language="${lang}" speechTimeout="auto" action="/api/twilio/gather/${callId}" method="POST">
+        <Say language="${lang}" voice="${voice}">.</Say>
       </Gather>
-      <Say language="es-MX" voice="Polly.Mia">No escuché su respuesta. ¿Puedo ayudarle en algo?</Say>
-      <Gather input="speech" language="es-MX" speechTimeout="auto" action="/api/twilio/gather/${callId}" method="POST">
-        <Say language="es-MX" voice="Polly.Mia">.</Say>
+      <Say language="${lang}" voice="${voice}">No escuché su respuesta. ¿Puedo ayudarle en algo?</Say>
+      <Gather input="speech" language="${lang}" speechTimeout="auto" action="/api/twilio/gather/${callId}" method="POST">
+        <Say language="${lang}" voice="${voice}">.</Say>
       </Gather>
-      <Say language="es-MX" voice="Polly.Mia">Gracias por llamar. ¡Hasta luego!</Say>
+      <Say language="${lang}" voice="${voice}">Gracias por llamar. ¡Hasta luego!</Say>
       <Hangup/>
     </Response>
   `)
@@ -57,7 +85,7 @@ router.post('/voice/:botId', async (req, res) => {
  * POST /api/twilio/outbound/:callId
  */
 router.post('/outbound/:callId', async (req, res) => {
-  const call = db.prepare('SELECT c.*, b.system_prompt, b.greeting FROM calls c JOIN bots b ON c.bot_id = b.id WHERE c.id = ?').get(req.params.callId)
+  const call = db.prepare('SELECT c.*, b.system_prompt, b.greeting, b.voice_model, b.language FROM calls c JOIN bots b ON c.bot_id = b.id WHERE c.id = ?').get(req.params.callId)
 
   if (!call) {
     res.type('text/xml')
@@ -69,21 +97,24 @@ router.post('/outbound/:callId', async (req, res) => {
     `)
   }
 
+  const voice = getTwilioVoice(call.voice_model)
+  const lang = getTwilioLang(call.language)
+
   // Store initial messages
   db.prepare(`INSERT INTO call_messages (call_id, role, content) VALUES (?, 'assistant', ?)`).run(call.id, call.greeting)
 
   res.type('text/xml')
   res.send(`
     <Response>
-      <Say language="es-MX" voice="Polly.Mia">${escapeXml(call.greeting)}</Say>
-      <Gather input="speech" language="es-MX" speechTimeout="auto" action="/api/twilio/gather/${call.id}" method="POST">
-        <Say language="es-MX" voice="Polly.Mia">.</Say>
+      <Say language="${lang}" voice="${voice}">${escapeXml(call.greeting)}</Say>
+      <Gather input="speech" language="${lang}" speechTimeout="auto" action="/api/twilio/gather/${call.id}" method="POST">
+        <Say language="${lang}" voice="${voice}">.</Say>
       </Gather>
-      <Say language="es-MX" voice="Polly.Mia">No escuché su respuesta. ¿Sigue ahí?</Say>
-      <Gather input="speech" language="es-MX" speechTimeout="auto" action="/api/twilio/gather/${call.id}" method="POST">
-        <Say language="es-MX" voice="Polly.Mia">.</Say>
+      <Say language="${lang}" voice="${voice}">No escuché su respuesta. ¿Sigue ahí?</Say>
+      <Gather input="speech" language="${lang}" speechTimeout="auto" action="/api/twilio/gather/${call.id}" method="POST">
+        <Say language="${lang}" voice="${voice}">.</Say>
       </Gather>
-      <Say language="es-MX" voice="Polly.Mia">Gracias por su tiempo. ¡Hasta luego!</Say>
+      <Say language="${lang}" voice="${voice}">Gracias por su tiempo. ¡Hasta luego!</Say>
       <Hangup/>
     </Response>
   `)
@@ -95,21 +126,25 @@ router.post('/outbound/:callId', async (req, res) => {
  */
 router.post('/gather/:callId', async (req, res) => {
   const speechResult = req.body.SpeechResult
+
+  // Get call + bot info (need voice_model and language for TTS)
+  const call = db.prepare('SELECT c.*, b.system_prompt, b.llm_model, b.voice_model, b.language FROM calls c JOIN bots b ON c.bot_id = b.id WHERE c.id = ?').get(req.params.callId)
+  const voice = call ? getTwilioVoice(call.voice_model) : 'Polly.Mia'
+  const lang = call ? getTwilioLang(call.language) : 'es-MX'
+
   if (!speechResult) {
     res.type('text/xml')
     return res.send(`
       <Response>
-        <Say language="es-MX" voice="Polly.Mia">No pude escuchar lo que dijo. ¿Podría repetirlo?</Say>
-        <Gather input="speech" language="es-MX" speechTimeout="auto" action="/api/twilio/gather/${req.params.callId}" method="POST">
-          <Say language="es-MX" voice="Polly.Mia">.</Say>
+        <Say language="${lang}" voice="${voice}">No pude escuchar lo que dijo. ¿Podría repetirlo?</Say>
+        <Gather input="speech" language="${lang}" speechTimeout="auto" action="/api/twilio/gather/${req.params.callId}" method="POST">
+          <Say language="${lang}" voice="${voice}">.</Say>
         </Gather>
-        <Say language="es-MX" voice="Polly.Mia">Gracias por llamar. ¡Hasta luego!</Say>
+        <Say language="${lang}" voice="${voice}">Gracias por llamar. ¡Hasta luego!</Say>
         <Hangup/>
       </Response>
     `)
   }
-
-  const call = db.prepare('SELECT c.*, b.system_prompt, b.llm_model FROM calls c JOIN bots b ON c.bot_id = b.id WHERE c.id = ?').get(req.params.callId)
   if (!call) {
     res.type('text/xml')
     return res.send(`<Response><Hangup/></Response>`)
@@ -152,7 +187,7 @@ router.post('/gather/:callId', async (req, res) => {
       res.type('text/xml')
       return res.send(`
         <Response>
-          <Say language="es-MX" voice="Polly.Mia">${escapeXml(aiResponse)}</Say>
+          <Say language="${lang}" voice="${voice}">${escapeXml(aiResponse)}</Say>
           <Hangup/>
         </Response>
       `)
@@ -162,15 +197,15 @@ router.post('/gather/:callId', async (req, res) => {
     res.type('text/xml')
     res.send(`
       <Response>
-        <Say language="es-MX" voice="Polly.Mia">${escapeXml(aiResponse)}</Say>
-        <Gather input="speech" language="es-MX" speechTimeout="auto" action="/api/twilio/gather/${call.id}" method="POST">
-          <Say language="es-MX" voice="Polly.Mia">.</Say>
+        <Say language="${lang}" voice="${voice}">${escapeXml(aiResponse)}</Say>
+        <Gather input="speech" language="${lang}" speechTimeout="auto" action="/api/twilio/gather/${call.id}" method="POST">
+          <Say language="${lang}" voice="${voice}">.</Say>
         </Gather>
-        <Say language="es-MX" voice="Polly.Mia">¿Hay algo más en lo que pueda ayudarle?</Say>
-        <Gather input="speech" language="es-MX" speechTimeout="auto" action="/api/twilio/gather/${call.id}" method="POST">
-          <Say language="es-MX" voice="Polly.Mia">.</Say>
+        <Say language="${lang}" voice="${voice}">¿Hay algo más en lo que pueda ayudarle?</Say>
+        <Gather input="speech" language="${lang}" speechTimeout="auto" action="/api/twilio/gather/${call.id}" method="POST">
+          <Say language="${lang}" voice="${voice}">.</Say>
         </Gather>
-        <Say language="es-MX" voice="Polly.Mia">Gracias por llamar. ¡Hasta luego!</Say>
+        <Say language="${lang}" voice="${voice}">Gracias por llamar. ¡Hasta luego!</Say>
         <Hangup/>
       </Response>
     `)
@@ -179,13 +214,13 @@ router.post('/gather/:callId', async (req, res) => {
     res.type('text/xml')
     res.send(`
       <Response>
-        <Say language="es-MX" voice="Polly.Mia">Disculpe, tuve un problema procesando su solicitud. ¿Podría repetirlo?</Say>
-        <Gather input="speech" language="es-MX" speechTimeout="auto" action="/api/twilio/gather/${req.params.callId}" method="POST">
-          <Say language="es-MX" voice="Polly.Mia">.</Say>
+        <Say language="${lang}" voice="${voice}">Disculpe, tuve un problema procesando su solicitud. ¿Podría repetirlo?</Say>
+        <Gather input="speech" language="${lang}" speechTimeout="auto" action="/api/twilio/gather/${req.params.callId}" method="POST">
+          <Say language="${lang}" voice="${voice}">.</Say>
         </Gather>
         <Hangup/>
       </Response>
-    `)
+    `)  
   }
 })
 
