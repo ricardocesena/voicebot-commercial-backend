@@ -1,27 +1,43 @@
-require('dotenv').config()
+// Only load dotenv in development (Railway provides env vars natively)
+try { require('dotenv').config() } catch (e) {}
 const express = require('express')
 const cors = require('cors')
 const crypto = require('crypto')
-const db = require('./db')
+
+console.log('ENV CHECK - PORT:', process.env.PORT, 'TWILIO_SID exists:', !!process.env.TWILIO_ACCOUNT_SID, 'OPENAI exists:', !!process.env.OPENAI_API_KEY)
+
+// Catch uncaught errors
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err.message, err.stack)
+})
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION:', err)
+})
+
+console.log('Loading database...')
+let db
+try {
+  db = require('./db')
+  console.log('Database loaded successfully')
+} catch (err) {
+  console.error('DATABASE ERROR:', err.message)
+}
+
 const twilioRoutes = require('./routes/twilio')
 const openaiService = require('./services/openai')
 
 const app = express()
 const PORT = process.env.PORT || 3001
 
-// Middleware - allow multiple origins for Netlify + localhost
-const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map(s => s.trim())
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.some(o => origin === o || origin.endsWith('.netlify.app'))) {
-      callback(null, true)
-    } else {
-      callback(null, true) // Allow all in development; restrict in production if needed
-    }
-  }
-}))
+// Middleware - allow all origins for cloud deployment
+app.use(cors())
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Voicebot Commercial API' })
+})
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -32,7 +48,7 @@ app.get('/api/health', (req, res) => {
     services: {
       twilio: twilioConfigured ? 'configured' : 'not_configured',
       openai: openaiConfigured ? 'configured' : 'not_configured',
-      database: 'connected'
+      database: db ? 'connected' : 'error'
     }
   })
 })
@@ -397,9 +413,14 @@ app.post('/api/chat', async (req, res) => {
   }
 })
 
-// Start server - bind to 0.0.0.0 for Render/cloud deployments
-app.listen(PORT, '0.0.0.0', () => {
+// Start server - bind to 0.0.0.0 for cloud deployments
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Voicebot Commercial API running on port ${PORT}`)
   console.log(`Twilio: ${process.env.TWILIO_ACCOUNT_SID ? 'Configured' : 'Not configured'}`)
   console.log(`OpenAI: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Not configured'}`)
+  console.log(`Server is ready to accept connections`)
+})
+
+server.on('error', (err) => {
+  console.error('SERVER ERROR:', err.message)
 })
