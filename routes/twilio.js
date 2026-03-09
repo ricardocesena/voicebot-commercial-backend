@@ -1,6 +1,6 @@
 const express = require('express')
 const router = express.Router()
-const { v4: uuidv4 } = require('uuid')
+const crypto = require('crypto')
 const db = require('../db')
 const openaiService = require('../services/openai')
 
@@ -21,7 +21,7 @@ router.post('/voice/:botId', async (req, res) => {
   }
 
   // Create call record
-  const callId = `call-${uuidv4()}`
+  const callId = `call-${crypto.randomUUID()}`
   const callerPhone = req.body.From || 'unknown'
   const callerName = req.body.CallerName || 'Desconocido'
 

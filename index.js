@@ -1,7 +1,7 @@
 require('dotenv').config()
 const express = require('express')
 const cors = require('cors')
-const { v4: uuidv4 } = require('uuid')
+const crypto = require('crypto')
 const db = require('./db')
 const twilioRoutes = require('./routes/twilio')
 const openaiService = require('./services/openai')
@@ -98,7 +98,7 @@ app.post('/api/bots', (req, res) => {
     return res.status(400).json({ error: 'Name and type are required' })
   }
 
-  const id = `bot-${uuidv4()}`
+  const id = `bot-${crypto.randomUUID()}`
   db.prepare(`
     INSERT INTO bots (id, name, type, status, industry, template_id, system_prompt, greeting, voice_style, voice_provider, voice_model, language, phone_number, llm_model, max_duration, transfer_number)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -220,7 +220,7 @@ app.post('/api/calls/outbound', async (req, res) => {
     return res.status(503).json({ error: 'Twilio not configured. Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.' })
   }
 
-  const callId = `call-${uuidv4()}`
+  const callId = `call-${crypto.randomUUID()}`
   db.prepare(`
     INSERT INTO calls (id, bot_id, contact_name, contact_phone, type, status)
     VALUES (?, ?, ?, ?, 'outbound', 'in_progress')
