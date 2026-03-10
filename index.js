@@ -175,6 +175,22 @@ app.put('/api/bots/:id', (req, res) => {
   res.json(bot)
 })
 
+// Activate a bot - deactivates all others (only 1 active at a time)
+app.post('/api/bots/:id/activate', (req, res) => {
+  const existing = db.prepare('SELECT * FROM bots WHERE id = ?').get(req.params.id)
+  if (!existing) return res.status(404).json({ error: 'Bot not found' })
+
+  // Deactivate all bots first, then activate the selected one
+  const activateTransaction = db.transaction(() => {
+    db.prepare("UPDATE bots SET status = 'paused', updated_at = datetime('now') WHERE status = 'active'").run()
+    db.prepare("UPDATE bots SET status = 'active', updated_at = datetime('now') WHERE id = ?").run(req.params.id)
+  })
+  activateTransaction()
+
+  const bot = db.prepare('SELECT * FROM bots WHERE id = ?').get(req.params.id)
+  res.json(bot)
+})
+
 app.delete('/api/bots/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM bots WHERE id = ?').get(req.params.id)
   if (!existing) return res.status(404).json({ error: 'Bot not found' })

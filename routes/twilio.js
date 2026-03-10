@@ -31,10 +31,16 @@ function getTwilioLang(language) {
 
 /**
  * Inbound call webhook - Twilio calls this when someone calls the bot's number
- * POST /api/twilio/voice/:botId
+ * POST /api/twilio/voice - uses the currently active bot
+ * POST /api/twilio/voice/:botId - uses a specific bot (legacy)
  */
-router.post('/voice/:botId', async (req, res) => {
-  const bot = db.prepare('SELECT * FROM bots WHERE id = ?').get(req.params.botId)
+router.post('/voice/:botId?', async (req, res) => {
+  let bot
+  if (req.params.botId) {
+    bot = db.prepare('SELECT * FROM bots WHERE id = ?').get(req.params.botId)
+  } else {
+    bot = db.prepare("SELECT * FROM bots WHERE status = 'active' LIMIT 1").get()
+  }
   if (!bot || bot.status !== 'active') {
     res.type('text/xml')
     return res.send(`
